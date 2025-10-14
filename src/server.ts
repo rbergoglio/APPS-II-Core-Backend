@@ -1,24 +1,44 @@
 import dotenv from "dotenv";
-import KnexManager from "./database/KnexConnection";
 dotenv.config();
 
-const envPort: string = process.env.PORT || "3005";
+const envPort = process.env.PORT || "8080";
+const PORT = Number(envPort);
+if (Number.isNaN(PORT)) throw new Error("PORT must be a number");
 
-if (isNaN(parseInt(envPort))) {
-  throw new Error("The port must to be a number");
-}
-
-const PORT: number = parseInt(envPort);
-
-(async () => {})().then(async () => {
-  try {
-    await KnexManager.connect();
-    console.log("✅ Database connected");
-  } catch (err) {
-    console.error("❌ Failed to connect to database:", err);
-    process.exit(1); // Evita levantar el servidor sin DB
-  }
-
+(async () => {
   const { default: app } = await import("./app");
-  app.listen(PORT, () => console.info(`Server up and running on port ${PORT}`));
-});
+
+  // Health check liviano: NO toca DB
+  app.get("/healthz", (_req, res) => res.status(200).send("ok"));
+
+  // Señal de readiness (opcional, si querés usarla)
+  let ready = false;
+  app.get("/readyz", (_req, res) => {
+    if (ready) return res.status(200).send("ready");
+    return res.status(503).send("starting");
+  });
+
+  app.listen(PORT, () => console.info(`Server listening on ${PORT}`));
+
+  // Conectar a la DB en background con reintentos
+  const { default: KnexManager } = await import("./database/KnexConnection");
+  const maxRetries = 20;
+  const delayMs = 3000;
+  for (let i = 1; i <= maxRetries; i++) {
+    try {
+      await KnexManager.connect();
+      console.log("✅ Database connected");
+      ready = true;
+      break;
+    } catch (err) {
+      console.error(`❌ DB connect attempt ${i}/${maxRetries} failed:`, (err as Error).message);
+      if (i === maxRetries) {
+        console.error("Giving up after max retries."); 
+        // Podés salir si preferís que App Runner redepliegue:
+        // process.exit(1);
+      } else {
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+    }
+  }
+})();
