@@ -15,9 +15,22 @@ if (Number.isNaN(PORT)) throw new Error("PORT must be a number");
   app.get("/readyz", async (_req, res) => {
     try {
       const { default: KnexManager } = await import("./database/KnexConnection");
-      const db = KnexManager.get();   // lanza si aún no conectó
-      await db.raw("select 1");       // ping real
-      return res.status(200).send("ready");
+      try {
+        // If already connected, this will succeed
+        const db = KnexManager.get();
+        await db.raw("select 1");
+        return res.status(200).send("ready");
+      } catch (innerErr) {
+        // Not connected yet — try a single quick connect attempt (one-off)
+        try {
+          await KnexManager.connect();
+          const db2 = KnexManager.get();
+          await db2.raw("select 1");
+          return res.status(200).send("ready");
+        } catch (connectErr: any) {
+          return res.status(503).send(`starting: ${connectErr?.message ?? connectErr}`);
+        }
+      }
     } catch (e: any) {
       return res.status(503).send(`starting: ${e?.message ?? e}`);
     }
