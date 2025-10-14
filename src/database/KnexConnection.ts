@@ -1,4 +1,3 @@
-// src/database/KnexConnection.ts
 import knex, { Knex } from "knex";
 
 class KnexManager {
@@ -34,17 +33,16 @@ class KnexManager {
       migrations: { tableName: "knex_migrations" },
     };
 
-    // Log seguro del host (sin credenciales) para verificar que no sea 127.0.0.1
+    // 2) Log seguro del host (sin credenciales)
     try {
-      const host =
-        typeof finalConfig.connection === "string"
-          ? new URL(finalConfig.connection as string).hostname
-          : (finalConfig.connection as Knex.StaticConnectionConfig)?.host;
-      console.log("[Knex] host:", host);
+      const cn: any = finalConfig.connection as any;
+      const host = typeof cn === "string" ? new URL(cn).hostname : cn?.host ?? cn?.connection?.host;
+      if (host) console.log("[Knex] host:", host);
     } catch {
       /* ignore */
     }
 
+    // 3) Crear instancia y probar
     this.knexInstance = knex(finalConfig);
     try {
       await this.knexInstance.raw("select 1");
@@ -58,11 +56,16 @@ class KnexManager {
     return this.knexInstance;
   }
 
+  // Preferí usar get(), pero dejo el alias para compatibilidad con tu código viejo
   static get(): Knex {
     if (!this.knexInstance) {
       throw new Error("Knex connection has not been established. Call connect() first.");
     }
     return this.knexInstance;
+  }
+
+  static getConnection(): Knex { // <-- alias p/compatibilidad
+    return this.get();
   }
 
   static async disconnect(): Promise<void> {
